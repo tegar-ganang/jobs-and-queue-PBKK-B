@@ -1,6 +1,8 @@
 # jobs-and-queue-PBKK-B
 PBKK B - Teknik Informatika ITS
+
 Muhammad Valda Rizky Nur Firdaus   (05111940000115)
+
 Tegar Ganang Satrio Prambodo           (5025201002)
 
 ## Latar Belakang Topik
