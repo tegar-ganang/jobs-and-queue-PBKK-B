@@ -6,9 +6,19 @@ Muhammad Valda Rizky Nur Firdaus   (05111940000115)
 Tegar Ganang Satrio Prambodo           (5025201002)
 
 ## Latar Belakang Topik
+Pada aplikasi web, biasanya terdapat task yang membutuhkan waktu lama untuk dijalankan, seperti :
 
+* manipulasi gambar yang di-upload oleh client
+* konversi data dari database ke bentuk file tertentu
+* pengiriman e-mail ke mail server
+* menggunakan service dari third-party
+* dan lainnya.
+
+Hal ini membuat user harus menunggu beberapa lama untuk dapat melanjutkan task yang lain. Dengan job queues (antrian tugas), tasks yang memakan banyak waktu tersebut dapat dipindah ke dalam _queue_ untuk dijalankan di latar belakang. Dengan demikian _response time_-nya dapat menjadi lebih cepat.
 ## Konsep
+![image](https://user-images.githubusercontent.com/81211647/169029439-6fc681da-4320-49e3-a122-a04f4c959030.png)
 
+Pada Konsep ini menunjukkan perbedaan pada saat menggunakan Queue dan tidak menggunakannya. Perbedaan ini akan terlihat dari kecepatan pengaksesnya, dimana akan lebih cepat orang yang menggunakan Queue karena proses jobs akan lansung dikrjakan pada background dan pada foreground nya tetap akan berjalan untuk penginputan berikutnya.
 ## Persiapan dan Settingan Awal
 
 Hal hal yang perlu diperhatikan dan harus dilakukan sebelum membuat jobs yang nantinya dapat diqueue yaitu:
@@ -292,3 +302,129 @@ Additional command:
 - Untuk menghilangkan semua job yang gagal dapat menjalankan `php artisan queue:flush`
 
 ![image](https://user-images.githubusercontent.com/85062827/169019159-5f93d2fb-0163-4f14-9399-d06e867194d1.png)
+
+## More for Jobs
+### Unique Job : Memastikan tidak ada jobs ganda pada queue
+*database need to be supported with lock*
+Job hanya akan dipush ke queue ketika tidak ada job dengan key yang sama pada queue tersebut jika ada maka tidak akan dipush.
+
+untuk basic dari penggunaan jobs bisa menambahkan:
+```php
+<?php
+
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
+
+class UpdateSearchIndex implements ShouldQueue, ShouldBeUnique
+{
+    ...
+}
+```
+
+untuk contoh penggunaan, buat sebuah file job baru bernama UniqueJob
+isi dari job bisa diisikan seperti job di bawah:
+```php
+use Illuminate\Contracts\Queue\ShouldBeUnique;
+
+class TestUniqueJob implements ShouldQueue, ShouldBeUnique
+{
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    protected $jobId = 'Job'; #digunakan untuk membuat sebuah key agar job menjadi unique
+
+    public function __construct()
+    {
+        //
+    }
+
+    public function uniqueId()
+    {
+        return $this->jobId;
+    }
+   
+    public function handle()
+    {
+        Log::info('Running job' ,['id' => $this->jobId] ); #agar mencetak log pada database
+    }
+}
+
+```
+Selanjutnya bisa ditambahkan pada web.php
+```
+Route::get('unique', function ()
+{
+    dispatch(new App\Jobs\TestUniqueJob);
+});
+```
+Untuk menjalankannya, bisa dijalankan seperti langkah-langkah tutorial sebelumnya lalu dijalankan untuk UniqueJob 
+
+selanjutnya bisa dijalankan jobs pada aplikasi peramban masing masing
+![image](https://user-images.githubusercontent.com/81211647/169036314-c3619ff4-cdda-4b10-a0df-2350b6f1746d.png)
+terlihat jika pada gambar, yang tercatat hanya 1 log saja dari semua job yang dijalankan
+
+### Job Middleware : Membuat Custom Logic
+Jika ingin menambahkan logic sendiri maka laravel tidak mespesifikasikan path dan dapat bebas membuat pathnya misalnya `App\Middleware` atau `App\Jobs\Middleware`. Setelah membut middleware, jangan lupa menambahkannya secara manual di job class, misal :
+```php
+use App\Jobs\Middleware\RateLimited;
+
+public function middleware()
+{
+    return [new RateLimited];
+}
+```
+
+### Job Chaining : Membuat Job yang berjalan urut
+Job Chaining dilakukan ketika job yang dilakukan harus urut dan jika ada bagian yang gagal maka job dalam chain tidak akan dilakukan. Untuk menjalankan job chain, menggunkan method `chain` dan facade `Bus`. Misal :
+
+```php
+use App\Jobs\Job1;
+use App\Jobs\Job2;
+use App\Jobs\Job4;
+use Illuminate\Support\Facades\Bus;
+
+Bus::chain([
+    new Job1,
+    new Job2,
+    new Job4,
+])->dispatch();
+```
+
+### Jobs Batching : membuat Jobs yang dapat dilacak
+Fitur ini memungkinkan mengjalankan batch dan melakukan aksi ketika batch sudah selesai dilakukan
+
+#### 1 : Membuat Table Batch
+Perlu membuat tablenya telebih dahulu
+```
+php artisan queue:batches-table
+
+php artisan migrate
+```
+
+#### 2 : Create Batch
+Perlu menambahkan`Illuminate\Bus\Batchable` dan dalam class `use Batchable`
+
+#### 3 : Dispatch Batch
+Sebagai contoh:
+```php
+use App\Jobs\ImportCsv;
+use Illuminate\Bus\Batch;
+use Illuminate\Support\Facades\Bus;
+use Throwable;
+
+$batch = Bus::batch([
+    new ImportCsv(1, 100),
+    new ImportCsv(101, 200),
+    new ImportCsv(201, 300),
+    new ImportCsv(301, 400),
+    new ImportCsv(401, 500),
+])->then(function (Batch $batch) {
+    // All jobs completed successfully...
+})->catch(function (Batch $batch, Throwable $e) {
+    // First batch job failure detected...
+})->finally(function (Batch $batch) {
+    // The batch has finished executing...
+})->dispatch();
+
+return $batch->id;
+```
+
